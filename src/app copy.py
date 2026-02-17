@@ -205,25 +205,10 @@ st.markdown(
         font-size:36px;
         font-weight:700;
         color:#9DB3BF;
-        text-align:center;
-        margin-bottom:4px;
-    ">
-        {center_name_only}
-    </div>
-    """,
-    unsafe_allow_html=True
-)
-
-st.markdown(
-    f"""
-    <div style="
-        font-size:18px;
-        font-weight:500;
-        color:#9DB3BF;
-        text-align:center;
         margin-bottom:28px;
+        text-align:center;
     ">
-        Forecast {periodicidade}
+        {center_name_only} - Forecast {periodicidade}
     </div>
     """,
     unsafe_allow_html=True
@@ -234,24 +219,19 @@ st.markdown(
 # -----------------------------
 st.markdown(f"### {PERIOD_LABELS[periodicidade]['metrics']}")
 
-with st.container(border=True):
-    st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+if metrics_view.empty:
+    st.warning("Sem métricas para este centro.")
+else:
+    row = metrics_view.iloc[0]
 
-    if metrics_view.empty:
-        st.warning("Sem métricas para este centro.")
-    else:
-        row = metrics_view.iloc[0]
+    mae = float(row["mae"]) if "mae" in metrics_view.columns else None
+    rmse = float(row["rmse"]) if "rmse" in metrics_view.columns else None
+    wape = float(row["wape"]) if "wape" in metrics_view.columns else None
 
-        mae = float(row["mae"]) if "mae" in metrics_view.columns else None
-        rmse = float(row["rmse"]) if "rmse" in metrics_view.columns else None
-        wape = float(row["wape"]) if "wape" in metrics_view.columns else None
-
-        c1, c2, c3 = st.columns(3)
-        c1.metric("MAE - Erro médio absoluto", f"{mae:.2f}" if mae else "—")
-        c2.metric("RMSE - Raiz erro quadratico médio", f"{rmse:.2f}" if rmse else "—")
-        c3.metric("WAPE - Percentagem erro absoluto", f"{wape:.2%}" if wape else "—")
-    
-    st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+    c1, c2, c3 = st.columns(3)
+    c1.metric("MAE - Erro médio absoluto", f"{mae:.2f}" if mae else "—")
+    c2.metric("RMSE - Raiz erro quadratico médio", f"{rmse:.2f}" if rmse else "—")
+    c3.metric("WAPE - Percentagem erro absoluto", f"{wape:.2%}" if wape else "—")
 
 # -----------------------------
 # Forecast (Histórico + Projeção)
@@ -304,34 +284,5 @@ else:
         .properties(height=340)
     )
 
-    # Mostrar apenas gráfico por defeito
     st.altair_chart(chart, use_container_width=True)
-    #st.dataframe(fc_plot.reset_index(drop=True), use_container_width=True)
-
-# -----------------------------
-# Tabela (escondida)
-# -----------------------------
-with st.expander("Ver tabela detalhada"):
-    
-    tabela = fc_plot.copy()
-
-    # Data curta dependendo da periodicidade
-    if periodicidade == "Mensal":
-        tabela["data"] = pd.to_datetime(tabela["data"]).dt.strftime("%b %Y")
-    elif periodicidade == "Semanal":
-        tabela["data"] = pd.to_datetime(tabela["data"]).dt.strftime("Sem %W - %Y")
-    elif periodicidade == "Diário":
-        tabela["data"] = pd.to_datetime(tabela["data"]).dt.strftime("%d/%m/%Y")
-
-    # Garantir inteiro limpo
-    tabela["valor"] = tabela["valor"].astype("Int64")
-
-    st.dataframe(
-        tabela.rename(columns={
-            "data": "Data",
-            "valor": "Inspeções",
-            "tipo": "Tipo"
-        }).reset_index(drop=True),
-        use_container_width=True
-    )
-
+    st.dataframe(fc_plot.reset_index(drop=True), use_container_width=True)
