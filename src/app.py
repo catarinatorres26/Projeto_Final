@@ -32,6 +32,25 @@ PERIOD_MAP = {
 }
 
 # -----------------------------
+# Labels dinâmicas por periodicidade
+# -----------------------------
+PERIOD_LABELS = {
+    "Mensal": {
+        "metrics": "Métricas (12m Histórico)",
+        "forecast": "Forecast (12m Histórico - 12m Projeção)"
+    },
+    "Semanal": {
+        "metrics": "Métricas (2m Histórico)",
+        "forecast": "Forecast (2m Histórico - 2m Projeção)"
+    },
+    "Diário": {
+        "metrics": "Métricas (2sem Histórico)",
+        "forecast": "Forecast (2sem Histórico - 2sem Projeção)"
+    }
+}
+
+
+# -----------------------------
 # Loaders
 # -----------------------------
 @st.cache_data
@@ -198,7 +217,7 @@ st.markdown(
 # -----------------------------
 # Métricas
 # -----------------------------
-st.markdown("### Métricas (12m histórico)")
+st.markdown(f"### {PERIOD_LABELS[periodicidade]['metrics']}")
 
 if metrics_view.empty:
     st.warning("Sem métricas para este centro.")
@@ -217,7 +236,7 @@ else:
 # -----------------------------
 # Forecast (Histórico + Projeção)
 # -----------------------------
-st.markdown(f"### Forecast ({periodicidade}) — Histórico vs Projeção")
+st.markdown(f"### {PERIOD_LABELS[periodicidade]['forecast']}")
 
 if data_view.empty:
     st.warning("Sem dados para este centro.")
