@@ -7,209 +7,273 @@ from pathlib import Path
 # Paths
 # -----------------------------
 BASE_PATH = Path(__file__).resolve().parents[1]
-DATA_RAW_PATH = BASE_PATH / "data" / "raw"
 DATA_PROCESSED_PATH = BASE_PATH / "data" / "processed"
 
-CENTERS_FILE = DATA_RAW_PATH / "Coordenadas centros.xlsx"
-
+CENTERS_PARQUET = DATA_PROCESSED_PATH / "centers.parquet"
 METRICS_PATH = DATA_PROCESSED_PATH / "backtest_metrics_all_centers.parquet"
-PLOTS_PATH   = DATA_PROCESSED_PATH / "backtest_plot_all_centers.parquet"
+PLOTS_PATH = DATA_PROCESSED_PATH / "backtest_plot_all_centers.parquet"
+FORECAST_PATH = DATA_PROCESSED_PATH / "forecast_monthly_all_centers.parquet"
+
+
+LOGO_PATH = BASE_PATH / "data" / "features" / "controlauto_logo.png"
 
 # -----------------------------
-# Parquet loader (robusto)
+# Loaders (robustos + cache)
 # -----------------------------
 @st.cache_data
 def load_parquet(path: str) -> pd.DataFrame:
     import pyarrow.parquet as pq
-    pf = pq.ParquetFile(path)          # evita o dataset scanner
-    table = pf.read()
-    return table.to_pandas()
+    pf = pq.ParquetFile(path)     # evita dataset scanner
+    return pf.read().to_pandas()
 
-@st.cache_data
-def load_centers(path: str) -> pd.DataFrame:
-    df = pd.read_excel(path)
-    df = df.rename(columns={
-        "# Centro": "center_id",
-        "Designação Centro (Base IMT, 2013)": "center_name",
-    })
-    df["center_id"] = df["center_id"].astype(str)
-    df["center_name"] = df["center_name"].astype(str)
-    df["label"] = df["center_name"] + " (" + df["center_id"] + ")"
-    return df[["center_id", "center_name", "label"]].drop_duplicates()
-
-def pick_col(cols, options):
-    cols_set = set(cols)
-    for c in options:
-        if c in cols_set:
-            return c
-    return None
+def normalize_cols(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+    df.columns = df.columns.str.strip().str.lower()
+    return df
 
 # -----------------------------
 # UI
 # -----------------------------
-st.set_page_config(page_title="Controlauto - Backtesting", layout="wide")
-st.title("Controlauto — Backtesting (Métricas + Gráficos)")
+st.set_page_config(page_title="Forecast de Inspeções", layout="wide")
 
-# validações de ficheiros
-if not CENTERS_FILE.exists():
-    st.error(f"Não encontrei o ficheiro de centros: {CENTERS_FILE}")
-    st.stop()
-if not METRICS_PATH.exists():
-    st.error(f"Não encontrei: {METRICS_PATH}")
-    st.stop()
-if not PLOTS_PATH.exists():
-    st.error(f"Não encontrei: {PLOTS_PATH}")
+# Header com logo
+col_logo, col_title = st.columns([1, 4], vertical_alignment="center")
+with col_logo:
+    if LOGO_PATH.exists():
+        st.image(str(LOGO_PATH), width=260)
+    else:
+        st.warning(f"Logo não encontrado em: {LOGO_PATH}")
+with col_title:
+    st.markdown("""
+    <style>
+    .main-title {
+        font-size: 38px;
+        font-weight: 800;
+        text-transform: uppercase;
+        font-family: 'Segoe UI', 'Arial', sans-serif;
+        margin-bottom: 5px;
+    }
+    .custom-divider {
+        height: 4px;
+        background-color: #F37021;
+        border-radius: 1px;
+        margin-top: 1px;
+        margin-bottom: 20px;
+    }
+    .section-title {
+        font-size: 28px;
+        font-weight: 600;
+        font-family: 'Segoe UI', 'Arial', sans-serif;
+        margin-bottom: 4px;
+    }
+
+    </style>
+    """, unsafe_allow_html=True)
+
+    st.markdown('<div class="main-title">Forecast de Inspeções</div>', unsafe_allow_html=True)
+    st.markdown('<div class="custom-divider"></div>', unsafe_allow_html=True)
+
+st.divider()
+
+# Validar ficheiros necessários
+missing_files = [p for p in [CENTERS_PARQUET, METRICS_PATH, PLOTS_PATH] if not p.exists()]
+if missing_files:
+    st.error("Ficheiros em falta:\n\n" + "\n".join([str(p) for p in missing_files]))
     st.stop()
 
-centros_df = load_centers(str(CENTERS_FILE))
-metrics = load_parquet(str(METRICS_PATH))
-plots   = load_parquet(str(PLOTS_PATH))
+# Load data
+centros_df = normalize_cols(load_parquet(str(CENTERS_PARQUET)))
+metrics_df = load_parquet(str(METRICS_PATH))
+plots_df = load_parquet(str(PLOTS_PATH))
+forecast_df = load_parquet(str(FORECAST_PATH))
 
-# normalizar nomes de colunas
-metrics.columns = metrics.columns.str.strip().str.lower()
-plots.columns   = plots.columns.str.strip().str.lower()
+
+# Normalizar colunas e nomes para consistência (CFGCENTROID -> cfgcentroid)
+metrics_df = normalize_cols(metrics_df).rename(columns={"cfgcentroid": "cfgcentroid"})
+plots_df = normalize_cols(plots_df).rename(columns={"cfgcentroid": "cfgcentroid"})
+forecast_df = normalize_cols(forecast_df)
+
+
+# Como os teus parquets vêm com CFGCENTROID, após lower vira "cfgcentroid" automaticamente.
+# Garantir:
+if "cfgcentroid" not in metrics_df.columns:
+    # caso raro: se veio com outro nome, tenta mapear
+    if "center_id" in metrics_df.columns:
+        metrics_df = metrics_df.rename(columns={"center_id": "cfgcentroid"})
+    else:
+        st.error(f"Não encontrei coluna de centro em metrics: {list(metrics_df.columns)}")
+        st.stop()
+
+if "cfgcentroid" not in plots_df.columns:
+    if "center_id" in plots_df.columns:
+        plots_df = plots_df.rename(columns={"center_id": "cfgcentroid"})
+    else:
+        st.error(f"Não encontrei coluna de centro em plots: {list(plots_df.columns)}")
+        st.stop()
+
+# centros parquet tem: center_id, center_name, label
+if "center_id" not in centros_df.columns or "label" not in centros_df.columns:
+    st.error(f"centers.parquet precisa de colunas ['center_id','label']. Tenho: {list(centros_df.columns)}")
+    st.stop()
+
+
+# ----------------------------------
+# Filtrar apenas centros com dados (mensal)
+# ----------------------------------
+centros_com_dados = set(metrics_df["cfgcentroid"].dropna().astype(int).unique())
+
+# (opcional mas recomendado) garantir que também existem no plots
+centros_com_dados &= set(plots_df["cfgcentroid"].dropna().astype(int).unique())
+
+centros_df["center_id"] = centros_df["center_id"].astype(str)
+centros_df["center_id_num"] = pd.to_numeric(centros_df["center_id"], errors="coerce")
+
+centros_df = centros_df[
+    centros_df["center_id_num"].isin(centros_com_dados)
+].copy()
+
+# ordenar por id crescente
+centros_df = centros_df.sort_values(["center_id_num", "center_id"], na_position="last")
+
 
 # -----------------------------
-# Inferir colunas (robusto)
+# Controls
 # -----------------------------
-# centro
-c_center_m = pick_col(metrics.columns, ["cfgcentroid", "center_id", "id_centro", "centroid", "centro_id"])
-c_center_p = pick_col(plots.columns,   ["cfgcentroid", "center_id", "id_centro", "centroid", "centro_id"])
-
-# periodicidade / granularidade (se existir)
-c_freq_m = pick_col(metrics.columns, ["freq", "frequency", "granularity", "periodicidade", "horizon_granularity"])
-c_freq_p = pick_col(plots.columns,   ["freq", "frequency", "granularity", "periodicidade", "horizon_granularity"])
-
-# modelo (se existir)
-c_model_m = pick_col(metrics.columns, ["model", "modelo", "model_name"])
-c_model_p = pick_col(plots.columns,   ["model", "modelo", "model_name"])
-
-# timestamp para plot
-c_ts_p = pick_col(plots.columns, ["timestamp", "ds", "date", "datetime", "month", "day", "time"])
-
-# valores para plot
-c_pred_p = pick_col(plots.columns, ["y_hat", "y_pred", "yhat", "prediction", "forecast", "previsto"])
-c_true_p = pick_col(plots.columns, ["y", "y_true", "actual", "real", "observed"])
-
-if c_center_m is None or c_center_p is None:
-    st.error(
-        "Não consegui identificar a coluna de centro nos parquets.\n\n"
-        f"metrics colunas: {list(metrics.columns)}\n"
-        f"plots colunas: {list(plots.columns)}"
-    )
-    st.stop()
-
-if c_ts_p is None or c_pred_p is None:
-    st.error(
-        "Não consegui identificar colunas essenciais para o gráfico (timestamp + previsão).\n\n"
-        f"plots colunas: {list(plots.columns)}"
-    )
-    st.stop()
-
-# normalizar tipo do centro
-metrics[c_center_m] = metrics[c_center_m].astype(str)
-plots[c_center_p]   = plots[c_center_p].astype(str)
-
-# converter timestamp
-plots[c_ts_p] = pd.to_datetime(plots[c_ts_p], errors="coerce")
-
-# -----------------------------
-# Dropdowns
-# -----------------------------
-col1, col2, col3 = st.columns([2, 1, 1])
+col1, col2 = st.columns([2, 1])
 
 with col1:
-    centro_label = st.selectbox("Centro", sorted(centros_df["label"].unique()))
-center_id = centro_label.split("(")[-1].replace(")", "").strip()
-
-# opções de periodicidade (se existir)
-freq_options = ["Horária", "Diária", "Mensal"]
-if c_freq_m and c_freq_p:
-    # tentar mapear valores reais existentes no dataset
-    # mostramos valores tal como existem no parquet (mais seguro)
-    f1 = sorted(set(metrics[c_freq_m].dropna().astype(str).unique()))
-    f2 = sorted(set(plots[c_freq_p].dropna().astype(str).unique()))
-    freq_options = sorted(set(f1).intersection(set(f2))) or sorted(set(f1 + f2))
+    #centro_label = st.selectbox("Seleciona um Centro", centros_df["label"].tolist(), index=0)
+    st.markdown('<div class="section-title">Seleciona um Centro</div>', unsafe_allow_html=True)
+    centro_label = st.selectbox("", centros_df["label"].tolist(), index=0)
+    center_id = centro_label.split(" - ")[0].strip()
 
 with col2:
-    freq_choice = st.selectbox("Periodicidade", freq_options)
+    # default = Mensal
+    #periodicidade = st.selectbox("Escolhe a Periodicidade", ["Mensal", "Semanal", "Diário"], index=0)
+    st.markdown('<div class="section-title">Escolhe a Periodicidade</div>', unsafe_allow_html=True)
+    periodicidade = st.selectbox("", ["Mensal", "Semanal", "Diário"], index=0)
 
-# opções de modelo (se existir)
-model_options = ["(todos)"]
-if c_model_m and c_model_p:
-    m1 = sorted(set(metrics[c_model_m].dropna().astype(str).unique()))
-    m2 = sorted(set(plots[c_model_p].dropna().astype(str).unique()))
-    model_options = ["(todos)"] + (sorted(set(m1).intersection(set(m2))) or sorted(set(m1 + m2)))
 
-with col3:
-    model_choice = st.selectbox("Modelo", model_options)
+# Nota: por agora só tens mensal. Mantemos as opções para a demo e mostramos aviso se não houver dados.
+# Quando tiveres os datasets semanal/diário, podes criar ficheiros separados por periodicidade,
+# ou adicionar uma coluna "periodicidade" e filtrar aqui.
 
 # -----------------------------
-# Filtrar dados
+# Filter
 # -----------------------------
-metrics_view = metrics[metrics[c_center_m] == center_id].copy()
-plots_view   = plots[plots[c_center_p] == center_id].copy()
+# Neste momento, assume-se que os ficheiros atuais são Mensal.
+if periodicidade != "Mensal":
+    st.info("⚠️ Por agora só existem resultados **Mensais**. Quando os ficheiros Semanal/Diário estiverem prontos, este dropdown vai filtrar automaticamente.")
+    # Continuamos a mostrar mensal para não ficar vazio
+    periodicidade_effective = "Mensal"
+else:
+    periodicidade_effective = "Mensal"
 
-if c_freq_m and freq_choice is not None:
-    metrics_view = metrics_view[metrics_view[c_freq_m].astype(str) == str(freq_choice)]
-if c_freq_p and freq_choice is not None:
-    plots_view = plots_view[plots_view[c_freq_p].astype(str) == str(freq_choice)]
+metrics_view = metrics_df[metrics_df["cfgcentroid"].astype(str) == str(center_id)].copy()
+plots_view = plots_df[plots_df["cfgcentroid"].astype(str) == str(center_id)].copy()
 
-if c_model_m and model_choice != "(todos)":
-    metrics_view = metrics_view[metrics_view[c_model_m].astype(str) == str(model_choice)]
-if c_model_p and model_choice != "(todos)":
-    plots_view = plots_view[plots_view[c_model_p].astype(str) == str(model_choice)]
-
-plots_view = plots_view.dropna(subset=[c_ts_p]).sort_values(c_ts_p)
+st.divider()
 
 # -----------------------------
-# Mostrar resultados
+# Metrics cards (MAE, RMSE, WAPE)
 # -----------------------------
-st.subheader(f"{centro_label} — {freq_choice}" + (f" — {model_choice}" if model_choice != "(todos)" else ""))
+st.markdown(f"### Métricas — {centro_label} ({periodicidade_effective})")
 
-# Métricas
-st.markdown("### Métricas de backtesting")
 if metrics_view.empty:
-    st.warning("Sem métricas para esta seleção.")
+    st.warning("Sem métricas para este centro.")
 else:
-    # tenta mostrar só colunas “relevantes” primeiro
-    preferred_metrics = [c for c in ["mae", "rmse", "mape", "smape", "r2"] if c in metrics_view.columns]
-    show_cols = []
-    for c in [c_freq_m, c_model_m, *preferred_metrics]:
-        if c and c in metrics_view.columns and c not in show_cols:
-            show_cols.append(c)
-    # fallback: mostra tudo
-    st.dataframe(metrics_view[show_cols] if show_cols else metrics_view, use_container_width=True)
+    # Como os teus ficheiros parecem ter 1 linha por centro, pegamos a primeira.
+    row = metrics_view.iloc[0]
 
-# Gráfico
-st.markdown("### Série real vs previsão (backtest)")
-if plots_view.empty:
-    st.warning("Sem dados de plot para esta seleção.")
+    mae = float(row["mae"]) if "mae" in metrics_view.columns else None
+    rmse = float(row["rmse"]) if "rmse" in metrics_view.columns else None
+    wape = float(row["wape"]) if "wape" in metrics_view.columns else None
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric("MAE - Erro médio absoluto", f"{mae:.2f}" if mae is not None else "—")
+    c2.metric("RMSE - Raiz erro quadratico médio", f"{rmse:.2f}" if rmse is not None else "—")
+    c3.metric("WAPE - Percentagem erro absoluto", f"{wape:.2%}" if wape is not None and wape <= 1 else (f"{wape:.4f}" if wape is not None else "—"))
+
+    # tabela completa (opcional)
+    with st.expander("Ver linha completa de métricas"):
+        st.dataframe(metrics_view, use_container_width=True)
+
+
+if False:
+    # -----------------------------
+    # Plot: Real vs Previsto
+    # -----------------------------
+
+    st.markdown("### Real vs Previsto (Backtesting)")
+
+    if plots_view.empty:
+        st.warning("Sem dados de plot para este centro.")
+    else:
+        plots_view["date"] = pd.to_datetime(plots_view["date"], errors="coerce")
+        plots_view = plots_view.dropna(subset=["date"]).sort_values("date")
+
+        plot_df = plots_view[["date", "real", "previsto"]].copy()
+        plot_df = plot_df.rename(columns={"date": "data"})
+
+        plot_df["data"] = plot_df["data"].dt.date
+        plot_df["real"] = pd.to_numeric(plot_df["real"], errors="coerce")
+        plot_df["previsto"] = pd.to_numeric(plot_df["previsto"], errors="coerce")
+
+        # gráfico
+        chart_df = plot_df.set_index("data")[["real", "previsto"]]
+
+        if len(chart_df) == 1:
+            st.bar_chart(chart_df)
+        else:
+            st.line_chart(chart_df)
+
+        # tabela sem índice estranho
+        st.dataframe(
+            plot_df.reset_index(drop=True),
+            use_container_width=True
+        )
+
+
+# -----------------------------
+# Forecast (Mensal)
+# -----------------------------
+st.markdown("### Forecast (Próximos Meses)")
+
+# filtrar forecast para o centro selecionado
+if "cfgcentroid" not in forecast_df.columns:
+    st.error(f"forecast precisa da coluna 'CFGCENTROID' (cfgcentroid). Tenho: {list(forecast_df.columns)}")
+    st.stop()
+
+fc_view = forecast_df[forecast_df["cfgcentroid"].astype(str) == str(center_id)].copy()
+
+if fc_view.empty:
+    st.warning("Sem dados de forecast para este centro.")
 else:
-    # preparar df para plot
-    plot_df = pd.DataFrame({"timestamp": plots_view[c_ts_p]})
-    plot_df["previsao"] = pd.to_numeric(plots_view[c_pred_p], errors="coerce")
-    if c_true_p and c_true_p in plots_view.columns:
-        plot_df["real"] = pd.to_numeric(plots_view[c_true_p], errors="coerce")
+    # validar colunas
+    if "month" not in fc_view.columns or "y_hat" not in fc_view.columns:
+        st.error(f"forecast precisa de colunas ['MONTH','y_hat'] (month, y_hat). Tenho: {list(fc_view.columns)}")
+        st.stop()
 
-    plot_df = plot_df.dropna(subset=["timestamp"]).sort_values("timestamp")
+    fc_view["month"] = pd.to_datetime(fc_view["month"], errors="coerce")
+    fc_view["y_hat"] = pd.to_numeric(fc_view["y_hat"], errors="coerce").round(0).astype("Int64")
+    fc_view = fc_view.dropna(subset=["month"]).sort_values("month")
 
-    # linha com streamlit (rápido)
-    st.line_chart(plot_df.set_index("timestamp"))
+    fc_plot = fc_view[["month", "y_hat"]].rename(columns={"month": "data", "y_hat": "forecast"}).copy()
+    fc_plot["data"] = fc_plot["data"].dt.date
 
-    # tabela final
-    st.dataframe(plot_df.tail(200), use_container_width=True)
+    st.line_chart(fc_plot.set_index("data")[["forecast"]])
 
-# Debug opcional
-with st.expander("Debug: colunas detetadas"):
-    st.write("metrics.columns:", list(metrics.columns))
-    st.write("plots.columns:", list(plots.columns))
-    st.write("Coluna centro metrics:", c_center_m)
-    st.write("Coluna centro plots:", c_center_p)
-    st.write("Coluna freq metrics:", c_freq_m)
-    st.write("Coluna freq plots:", c_freq_p)
-    st.write("Coluna modelo metrics:", c_model_m)
-    st.write("Coluna modelo plots:", c_model_p)
-    st.write("Coluna timestamp plots:", c_ts_p)
-    st.write("Coluna previsão plots:", c_pred_p)
-    st.write("Coluna real plots:", c_true_p)
+    st.dataframe(
+        fc_plot.reset_index(drop=True),
+        use_container_width=True
+    )
+
+
+if False:
+    # -----------------------------
+    # Debug (opcional)
+    # -----------------------------
+    with st.expander("Debug: colunas lidas"):
+        st.write("centers columns:", list(centros_df.columns))
+        st.write("metrics columns:", list(metrics_df.columns))
+        st.write("plots columns:", list(plots_df.columns))
