@@ -31,24 +31,6 @@ PERIOD_MAP = {
     "Diário": {"metrics": METRICS_DAILY_PATH, "data": DATA_DAILY_PATH},
 }
 
-# -----------------------------
-# Labels dinâmicas por periodicidade
-# -----------------------------
-PERIOD_LABELS = {
-    "Mensal": {
-        "metrics": "Métricas (12m Histórico)",
-        "forecast": "Forecast (12m Histórico - 12m Projeção)"
-    },
-    "Semanal": {
-        "metrics": "Métricas (2m Histórico)",
-        "forecast": "Forecast (2m Histórico - 2m Projeção)"
-    },
-    "Diário": {
-        "metrics": "Métricas (2sem Histórico)",
-        "forecast": "Forecast (2sem Histórico - 2sem Projeção)"
-    }
-}
-
 
 # -----------------------------
 # Loaders
@@ -230,9 +212,36 @@ st.markdown(
 )
 
 # -----------------------------
+# KPI contexto (período + modelo)
+# -----------------------------
+if periodicidade == "Mensal":
+    periodo_txt = "Período avaliado: últimos 12 meses"
+elif periodicidade == "Semanal":
+    periodo_txt = "Período avaliado: últimas 8 semanas (~2 meses)"
+else:  # Diário
+    periodo_txt = "Período avaliado: últimos 14 dias (~2 semanas)"
+
+modelo_txt = "Modelo: Holt-Winters (pré-selecionado)"  # ajusta para o vosso modelo real
+
+
+# -----------------------------
 # Métricas
 # -----------------------------
-st.markdown(f"### {PERIOD_LABELS[periodicidade]['metrics']}")
+st.markdown(f"### Métricas")
+
+st.markdown(
+    f"""
+    <div style="
+        font-size:14px;
+        color:#6B7280;
+        margin-top:-6px;
+        margin-bottom:12px;
+    ">
+        {periodo_txt} &nbsp;&nbsp;|&nbsp;&nbsp; {modelo_txt}
+    </div>
+    """,
+    unsafe_allow_html=True
+)
 
 with st.container(border=True):
     st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
@@ -256,7 +265,36 @@ with st.container(border=True):
 # -----------------------------
 # Forecast (Histórico + Projeção)
 # -----------------------------
-st.markdown(f"### {PERIOD_LABELS[periodicidade]['forecast']}")
+st.markdown(f"### Forecast")
+
+# -----------------------------
+# Subtítulo dinâmico Forecast
+# -----------------------------
+if periodicidade == "Mensal":
+    hist_txt = "Período de histórico: últimos 12 meses"
+    fc_txt   = "Período de forecast: 12 meses"
+
+elif periodicidade == "Semanal":
+    hist_txt = "Período de histórico: últimos 2 meses"
+    fc_txt   = "Período de forecast: 2 meses"
+
+else:  # Diário
+    hist_txt = "Período de histórico: últimos 2 semanas"
+    fc_txt   = "Período de forecast: 2 semanas"
+
+st.markdown(
+    f"""
+    <div style="
+        font-size:14px;
+        color:#6B7280;
+        margin-top:-6px;
+        margin-bottom:18px;
+    ">
+        {hist_txt} &nbsp;&nbsp;|&nbsp;&nbsp; {fc_txt}
+    </div>
+    """,
+    unsafe_allow_html=True
+)
 
 if data_view.empty:
     st.warning("Sem dados para este centro.")
