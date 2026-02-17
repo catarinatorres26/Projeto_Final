@@ -229,20 +229,6 @@ modelo_txt = "Modelo: Holt-Winters (pré-selecionado)"  # ajusta para o vosso mo
 # -----------------------------
 st.markdown(f"### Métricas")
 
-st.markdown(
-    f"""
-    <div style="
-        font-size:14px;
-        color:#6B7280;
-        margin-top:-6px;
-        margin-bottom:12px;
-    ">
-        {periodo_txt} &nbsp;&nbsp;|&nbsp;&nbsp; {modelo_txt}
-    </div>
-    """,
-    unsafe_allow_html=True
-)
-
 with st.container(border=True):
     st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
 
@@ -262,39 +248,26 @@ with st.container(border=True):
     
     st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
 
-# -----------------------------
-# Forecast (Histórico + Projeção)
-# -----------------------------
-st.markdown(f"### Forecast")
-
-# -----------------------------
-# Subtítulo dinâmico Forecast
-# -----------------------------
-if periodicidade == "Mensal":
-    hist_txt = "Período de histórico: últimos 12 meses"
-    fc_txt   = "Período de forecast: 12 meses"
-
-elif periodicidade == "Semanal":
-    hist_txt = "Período de histórico: últimos 2 meses"
-    fc_txt   = "Período de forecast: 2 meses"
-
-else:  # Diário
-    hist_txt = "Período de histórico: últimos 2 semanas"
-    fc_txt   = "Período de forecast: 2 semanas"
-
 st.markdown(
     f"""
     <div style="
         font-size:14px;
         color:#6B7280;
         margin-top:-6px;
-        margin-bottom:18px;
+        margin-bottom:12px;
     ">
-        {hist_txt} &nbsp;&nbsp;|&nbsp;&nbsp; {fc_txt}
+        {periodo_txt} &nbsp;&nbsp;|&nbsp;&nbsp; {modelo_txt}
     </div>
     """,
     unsafe_allow_html=True
 )
+
+# -----------------------------
+# Forecast (Histórico + Projeção)
+# -----------------------------
+st.markdown(f"### Forecast")
+
+
 
 if data_view.empty:
     st.warning("Sem dados para este centro.")
@@ -345,6 +318,35 @@ else:
     # Mostrar apenas gráfico por defeito
     st.altair_chart(chart, use_container_width=True)
     #st.dataframe(fc_plot.reset_index(drop=True), use_container_width=True)
+
+# -----------------------------
+# Legenda dinâmico Forecast
+# -----------------------------
+if periodicidade == "Mensal":
+    hist_txt = "Período de histórico: últimos 12 meses"
+    fc_txt   = "Período de forecast: 12 meses"
+
+elif periodicidade == "Semanal":
+    hist_txt = "Período de histórico: últimos 2 meses"
+    fc_txt   = "Período de forecast: 2 meses"
+
+else:  # Diário
+    hist_txt = "Período de histórico: últimos 2 semanas"
+    fc_txt   = "Período de forecast: 2 semanas"
+
+st.markdown(
+    f"""
+    <div style="
+        font-size:14px;
+        color:#6B7280;
+        margin-top:-6px;
+        margin-bottom:18px;
+    ">
+        {hist_txt} &nbsp;&nbsp;|&nbsp;&nbsp; {fc_txt}
+    </div>
+    """,
+    unsafe_allow_html=True
+)
 
 # -----------------------------
 # Tabela (escondida)
