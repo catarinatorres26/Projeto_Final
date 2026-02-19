@@ -3,6 +3,52 @@ import pandas as pd
 import streamlit as st
 import altair as alt
 from pathlib import Path
+import hmac
+
+# -----------------------------
+# Login
+# -----------------------------
+
+def require_password():
+
+    if st.secrets.get("APP_PASSWORD") is None:
+        st.error("Missing APP_PASSWORD in secrets.")
+        st.stop()
+
+    if st.session_state.get("auth_ok", False):
+        return
+
+    # --- Header com logo + título ---
+    col1, col2 = st.columns([1, 4], vertical_alignment="center")
+
+    with col1:
+        st.image("data/features/controlauto_logo.png", width=200, )
+
+    with col2:
+        st.markdown(
+            """
+            <h1 style='margin-bottom:0;'>Forecast de Inspeções</h1>
+            <p style='color:grey;margin-top:0;'>Plataforma de previsão por centro</p>
+            """,
+            unsafe_allow_html=True
+        )
+
+    st.markdown("---")
+
+    # --- Password input ---
+    pw = st.text_input("Password", type="password")
+
+    if st.button("Entrar", use_container_width=False):
+        if hmac.compare_digest(pw, st.secrets["APP_PASSWORD"]):
+            st.session_state["auth_ok"] = True
+            st.rerun()
+        else:
+            st.error("Password incorreta")
+
+    st.stop()
+
+require_password()
+
 
 # -----------------------------
 # Paths
@@ -11,7 +57,7 @@ BASE_PATH = Path(__file__).resolve().parents[1]
 DATA_PROCESSED_PATH = BASE_PATH / "data" / "processed"
 
 CENTERS_PARQUET = DATA_PROCESSED_PATH / "centers.parquet"
-LOGO_PATH = BASE_PATH / "data" / "features" / "controlauto_logo.png"
+LOGO_PATH = BASE_PATH / "data" / "features" / "controlauto_logo.svg"
 
 # Mensal
 METRICS_MONTHLY_PATH = DATA_PROCESSED_PATH / "monthly_metrics_last12_all_centers.parquet"
@@ -58,7 +104,7 @@ col_logo, col_title = st.columns([1, 4], vertical_alignment="center")
 
 with col_logo:
     if LOGO_PATH.exists():
-        st.image(str(LOGO_PATH), width=260)
+        st.image(str(LOGO_PATH), width=250)
 
 with col_title:
     st.markdown("""
@@ -216,12 +262,14 @@ st.markdown(
 # -----------------------------
 if periodicidade == "Mensal":
     periodo_txt = "Período avaliado: últimos 12 meses"
+    modelo_txt = "Modelo: Holt-Winters (pré-selecionado)"  # ajusta para o vosso modelo real
 elif periodicidade == "Semanal":
     periodo_txt = "Período avaliado: últimas 8 semanas (~2 meses)"
+    modelo_txt = "Modelo: HistGradientBoostingRegressor (pré-selecionado)"  # ajusta para o vosso modelo real
 else:  # Diário
     periodo_txt = "Período avaliado: últimos 14 dias (~2 semanas)"
+    modelo_txt = "Modelo: HistGradientBoostingRegressor (pré-selecionado)"  # ajusta para o vosso modelo real
 
-modelo_txt = "Modelo: Holt-Winters (pré-selecionado)"  # ajusta para o vosso modelo real
 
 
 # -----------------------------
@@ -304,20 +352,57 @@ else:
         range=["#1f77b4", "#F37021"]
     )
 
-    chart = (
-        alt.Chart(fc_plot)
-        .mark_line(point=True)
-        .encode(
-            x=alt.X("data:T", title="Data"),
-            y=alt.Y("valor:Q", title="Inspeções"),
-            color=alt.Color("tipo:N", scale=color_scale),
-        )
-        .properties(height=340)
-    )
 
-    # Mostrar apenas gráfico por defeito
-    st.altair_chart(chart, use_container_width=True)
-    #st.dataframe(fc_plot.reset_index(drop=True), use_container_width=True)
+# -----------------------------
+# Preparação do eixo X (robusta e igual à tabela)
+# -----------------------------
+fc_plot = fc_plot.copy()
+fc_plot["data_dt"] = pd.to_datetime(fc_plot["data"])
+
+if periodicidade == "Mensal":
+    # parecido com tabela: "Feb 2026" (ajusta se quiseres PT)
+    fc_plot["data_label"] = fc_plot["data_dt"].dt.strftime("%b %Y")
+    tick_count = 6
+
+elif periodicidade == "Semanal":
+    # parecido com tabela: "Sem 07 - 2026"
+    fc_plot["data_label"] = fc_plot["data_dt"].dt.strftime("Sem %W - %Y")
+    tick_count = 8
+
+else:  # Diário
+    # parecido com tabela: "18/02/2026"
+    fc_plot["data_label"] = fc_plot["data_dt"].dt.strftime("%d/%m/%Y")
+    tick_count = 10
+
+x_axis = alt.Axis(labelAngle=0)
+
+# -----------------------------
+# Gráfico
+# -----------------------------
+chart = (
+    alt.Chart(fc_plot)
+    .mark_line(point=True)
+    .encode(
+        # eixo X como ordinal (label já formatada), mas ordenado por datetime real
+        x=alt.X(
+            "data_label:O",
+            title="Data",
+            sort=alt.SortField(field="data_dt", order="ascending"),
+            axis=x_axis,
+        ),
+        y=alt.Y("valor:Q", title="Inspeções"),
+        color=alt.Color("tipo:N", scale=color_scale, legend=alt.Legend(title="Série")),
+        tooltip=[
+            alt.Tooltip("data_dt:T", title="Data"),
+            alt.Tooltip("tipo:N", title="Tipo"),
+            alt.Tooltip("valor:Q", title="Valor"),
+        ],
+    )
+    .properties(height=340)
+)
+
+st.altair_chart(chart, use_container_width=True)
+
 
 # -----------------------------
 # Legenda dinâmico Forecast
@@ -354,6 +439,9 @@ st.markdown(
 with st.expander("Ver tabela detalhada"):
     
     tabela = fc_plot.copy()
+
+    # ❗ Remover colunas técnicas usadas apenas no gráfico
+    tabela = tabela.drop(columns=["data_dt", "data_label"], errors="ignore")
 
     # Data curta dependendo da periodicidade
     if periodicidade == "Mensal":
