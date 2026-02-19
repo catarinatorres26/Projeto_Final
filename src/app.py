@@ -440,6 +440,9 @@ with st.expander("Ver tabela detalhada"):
     
     tabela = fc_plot.copy()
 
+    # ❗ Remover colunas técnicas usadas apenas no gráfico
+    tabela = tabela.drop(columns=["data_dt", "data_label"], errors="ignore")
+
     # Data curta dependendo da periodicidade
     if periodicidade == "Mensal":
         tabela["data"] = pd.to_datetime(tabela["data"]).dt.strftime("%b %Y")
